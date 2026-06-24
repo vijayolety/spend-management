@@ -1,0 +1,567 @@
+// Spend Management Platform — Prisma Schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// ENUMS
+// ---------------------------------------------------------------------------
+
+enum Currency {
+  INR
+  USD
+  EUR
+}
+
+enum PlanTier {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum MemberRole {
+  SUPER_ADMIN
+  ADMIN
+  FINANCE
+  MANAGER
+  MEMBER
+  VIEWER
+}
+
+enum PaymentKind {
+  PREPAID    // usage-based cap
+  CAPSUB     // monthly cap subscription
+  MOSUB      // flat monthly subscription
+  NOBUDGET   // uncapped — triggers "needs budget" alert
+}
+
+enum ToolCategory {
+  AI_LLM
+  CLOUD_INFRA
+  COMMUNICATION
+  DEV_TOOLS
+  DESIGN
+  HOSTING
+  MONITORING
+  OTHER
+}
+
+enum SpendRequestStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  MORE_INFO_NEEDED
+  CANCELLED
+  CLOSED
+}
+
+enum BudgetPeriodType {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum BudgetScopeType {
+  ORG
+  DEPARTMENT
+  TOOL
+}
+
+enum ApprovalStepType {
+  SINGLE
+  PARALLEL
+  CONDITIONAL
+}
+
+enum ApproverType {
+  USER
+  ROLE
+  MANAGER_OF_REQUESTER
+}
+
+enum ApprovalActionType {
+  APPROVED
+  REJECTED
+  MORE_INFO
+  DELEGATED
+  ESCALATED
+  AUTO_APPROVED
+}
+
+enum BillingStatus {
+  PENDING
+  PAID
+}
+
+enum VirusScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+}
+
+enum NotificationChannel {
+  EMAIL
+  SLACK
+  TEAMS
+  IN_APP
+}
+
+enum AlertType {
+  THRESHOLD_BREACH
+  MISSING_BUDGET
+  RENEWAL_APPROACHING
+  VELOCITY_SPIKE
+  BUDGET_NEARLY_EXHAUSTED
+}
+
+// ---------------------------------------------------------------------------
+// CORE TENANT
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  currency  Currency  @default(INR)
+  planTier  PlanTier  @default(FREE)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  departments   Department[]
+  users         User[]
+  tools         Tool[]
+  budgets       Budget[]
+  spendRequests SpendRequest[]
+  billingRecords BillingRecord[]
+  auditLogs     AuditLog[]
+  workflows     ApprovalWorkflow[]
+  notifications Notification[]
+
+  @@map("organizations")
+}
+
+// ---------------------------------------------------------------------------
+// DEPARTMENT (hierarchical)
+// ---------------------------------------------------------------------------
+
+model Department {
+  id          String    @id @default(uuid())
+  orgId       String
+  parentId    String?
+  name        String
+  code        String
+  ownerUserId String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  org         Organization        @relation(fields: [orgId], references: [id])
+  parent      Department?         @relation("DeptHierarchy", fields: [parentId], references: [id])
+  children    Department[]        @relation("DeptHierarchy")
+  owner       User?               @relation("DeptOwner", fields: [ownerUserId], references: [id])
+  memberships DepartmentMembership[]
+  tools       Tool[]
+  budgets     Budget[]
+  spendRequests SpendRequest[]
+
+  @@unique([orgId, code])
+  @@map("departments")
+}
+
+// ---------------------------------------------------------------------------
+// USER
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String    @id @default(uuid())
+  orgId        String
+  email        String
+  name         String
+  initials     String    @default("")
+  passwordHash String
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastLoginAt  DateTime?
+  deletedAt    DateTime?
+
+  org                 Organization          @relation(fields: [orgId], references: [id])
+  memberships         DepartmentMembership[]
+  ownedDepartments    Department[]          @relation("DeptOwner")
+  spendRequests       SpendRequest[]        @relation("Requester")
+  approvalActions     ApprovalAction[]
+  comments            Comment[]
+  notifications       Notification[]
+  billingRecordsPaid  BillingRecord[]       @relation("PaidBy")
+  attachmentsUploaded Attachment[]
+  delegationsFrom     ApproverDelegation[]  @relation("DelegatedFrom")
+  delegationsTo       ApproverDelegation[]  @relation("DelegatedTo")
+  refreshTokens       RefreshToken[]
+
+  @@unique([orgId, email])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// DEPARTMENT MEMBERSHIP (User ↔ Department with role)
+// ---------------------------------------------------------------------------
+
+model DepartmentMembership {
+  id           String     @id @default(uuid())
+  userId       String
+  departmentId String
+  role         MemberRole @default(MEMBER)
+  isPrimary    Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+
+  user       User       @relation(fields: [userId], references: [id])
+  department Department @relation(fields: [departmentId], references: [id])
+
+  @@unique([userId, departmentId])
+  @@map("department_memberships")
+}
+
+// ---------------------------------------------------------------------------
+// TOOL (tracked SaaS tool or API service)
+// ---------------------------------------------------------------------------
+
+model Tool {
+  id                String       @id @default(uuid())
+  orgId             String
+  departmentId      String
+  name              String
+  vendor            String       @default("")
+  category          ToolCategory @default(OTHER)
+  paymentKind       PaymentKind  @default(NOBUDGET)
+  monthlyAmount     Float        @default(0)
+  usedAmount        Float        @default(0)
+  capAmount         Float        @default(0)
+  barPct            Float        @default(0)
+  alertThresholdPct Float        @default(80)
+  triggerEmail      String?
+  renewalDate       DateTime?
+  monoInitials      String       @default("")
+  monoBgColor       String       @default("#5E6AD2")
+  isActive          Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  deletedAt         DateTime?
+
+  org            Organization   @relation(fields: [orgId], references: [id])
+  department     Department     @relation(fields: [departmentId], references: [id])
+  billingRecords BillingRecord[]
+  alertConfigs   AlertConfig[]
+  budgets        Budget[]       @relation("ToolBudgets")
+  spendRequests  SpendRequest[]
+
+  @@unique([orgId, name])
+  @@map("tools")
+}
+
+// ---------------------------------------------------------------------------
+// ALERT CONFIG
+// ---------------------------------------------------------------------------
+
+model AlertConfig {
+  id                   String   @id @default(uuid())
+  toolId               String
+  thresholdPct         Float    @default(80)
+  triggerEmail         String?
+  notifyChannels       String[] @default(["EMAIL"])
+  velocityThresholdPct Float    @default(50)
+  targetMonthlyUsage   Float    @default(0)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tool Tool @relation(fields: [toolId], references: [id])
+
+  @@map("alert_configs")
+}
+
+// ---------------------------------------------------------------------------
+// BUDGET
+// ---------------------------------------------------------------------------
+
+model Budget {
+  id              String          @id @default(uuid())
+  orgId           String
+  scopeType       BudgetScopeType
+  scopeId         String
+  departmentId    String?
+  toolId          String?
+  periodType      BudgetPeriodType
+  periodStart     DateTime
+  periodEnd       DateTime
+  allocatedAmount Float
+  reservedAmount  Float           @default(0)
+  spentAmount     Float           @default(0)
+  isLocked        Boolean         @default(false)
+  rolloverEnabled Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  org        Organization    @relation(fields: [orgId], references: [id])
+  department Department?     @relation(fields: [departmentId], references: [id])
+  tool       Tool?           @relation("ToolBudgets", fields: [toolId], references: [id])
+  revisions  BudgetRevision[]
+
+  @@map("budgets")
+}
+
+model BudgetRevision {
+  id              String   @id @default(uuid())
+  budgetId        String
+  previousAmount  Float
+  newAmount       Float
+  reason          String   @default("")
+  revisedByUserId String
+  createdAt       DateTime @default(now())
+
+  budget Budget @relation(fields: [budgetId], references: [id])
+
+  @@map("budget_revisions")
+}
+
+// ---------------------------------------------------------------------------
+// SPEND REQUEST
+// ---------------------------------------------------------------------------
+
+model SpendRequest {
+  id                   String             @id @default(uuid())
+  orgId                String
+  requesterId          String
+  departmentId         String
+  toolId               String?
+  title                String
+  description          String             @default("")
+  category             ToolCategory       @default(OTHER)
+  vendorName           String             @default("")
+  estimatedAmount      Float
+  currency             Currency           @default(INR)
+  businessJustification String            @default("")
+  status               SpendRequestStatus @default(DRAFT)
+  workflowId           String?
+  currentStepIndex     Int                @default(0)
+  revisionOfId         String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  closedAt             DateTime?
+
+  org          Organization      @relation(fields: [orgId], references: [id])
+  requester    User              @relation("Requester", fields: [requesterId], references: [id])
+  department   Department        @relation(fields: [departmentId], references: [id])
+  tool         Tool?             @relation(fields: [toolId], references: [id])
+  workflow     ApprovalWorkflow? @relation(fields: [workflowId], references: [id])
+  revisionOf   SpendRequest?     @relation("Revisions", fields: [revisionOfId], references: [id])
+  revisions    SpendRequest[]    @relation("Revisions")
+  attachments  Attachment[]
+  comments     Comment[]
+  actions      ApprovalAction[]
+
+  @@map("spend_requests")
+}
+
+// ---------------------------------------------------------------------------
+// APPROVAL WORKFLOW
+// ---------------------------------------------------------------------------
+
+model ApprovalWorkflow {
+  id           String   @id @default(uuid())
+  orgId        String
+  name         String
+  description  String   @default("")
+  triggerType  String   @default("amount_threshold") // category | amount_threshold | department
+  triggerValue String   @default("0")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  org           Organization   @relation(fields: [orgId], references: [id])
+  steps         ApprovalStep[]
+  spendRequests SpendRequest[]
+
+  @@map("approval_workflows")
+}
+
+model ApprovalStep {
+  id                    String          @id @default(uuid())
+  workflowId            String
+  stepOrder             Int
+  stepType              ApprovalStepType @default(SINGLE)
+  approverType          ApproverType    @default(ROLE)
+  approverId            String?
+  approverRole          MemberRole?
+  autoApproveBelowAmount Float?
+  escalationHours       Int             @default(48)
+  escalationToUserId    String?
+  createdAt             DateTime        @default(now())
+
+  workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+  actions  ApprovalAction[]
+
+  @@map("approval_steps")
+}
+
+model ApprovalAction {
+  id             String             @id @default(uuid())
+  spendRequestId String
+  stepId         String
+  approverId     String
+  action         ApprovalActionType
+  comment        String             @default("")
+  approvedAmount Float?
+  createdAt      DateTime           @default(now())
+
+  spendRequest SpendRequest @relation(fields: [spendRequestId], references: [id])
+  step         ApprovalStep @relation(fields: [stepId], references: [id])
+  approver     User         @relation(fields: [approverId], references: [id])
+
+  @@unique([spendRequestId, stepId, approverId])
+  @@map("approval_actions")
+}
+
+model ApproverDelegation {
+  id           String   @id @default(uuid())
+  fromUserId   String
+  toUserId     String
+  startDate    DateTime
+  endDate      DateTime
+  reason       String   @default("")
+  createdAt    DateTime @default(now())
+
+  fromUser User @relation("DelegatedFrom", fields: [fromUserId], references: [id])
+  toUser   User @relation("DelegatedTo", fields: [toUserId], references: [id])
+
+  @@map("approver_delegations")
+}
+
+// ---------------------------------------------------------------------------
+// BILLING RECORD
+// ---------------------------------------------------------------------------
+
+model BillingRecord {
+  id               String        @id @default(uuid())
+  orgId            String
+  toolId           String?
+  toolSnapshotJson Json?         // preserved even after tool deletion
+  monthKey         String        // YYYY-MM
+  monthLabel       String        // e.g. "Jun 2026"
+  amount           Float
+  status           BillingStatus @default(PENDING)
+  paidAt           DateTime?
+  paidByUserId     String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id])
+  tool     Tool?        @relation(fields: [toolId], references: [id])
+  paidBy   User?        @relation("PaidBy", fields: [paidByUserId], references: [id])
+
+  @@unique([orgId, toolId, monthKey])
+  @@map("billing_records")
+}
+
+// ---------------------------------------------------------------------------
+// ATTACHMENT
+// ---------------------------------------------------------------------------
+
+model Attachment {
+  id               String          @id @default(uuid())
+  spendRequestId   String
+  uploaderId       String
+  originalFilename String
+  storageKey       String          @unique
+  mimeType         String
+  sizeBytes        Int
+  contentHash      String          @default("") // SHA-256 for dedup
+  virusScanStatus  VirusScanStatus @default(PENDING)
+  createdAt        DateTime        @default(now())
+
+  spendRequest SpendRequest @relation(fields: [spendRequestId], references: [id])
+  uploader     User         @relation(fields: [uploaderId], references: [id])
+
+  @@map("attachments")
+}
+
+// ---------------------------------------------------------------------------
+// COMMENT
+// ---------------------------------------------------------------------------
+
+model Comment {
+  id             String    @id @default(uuid())
+  spendRequestId String
+  authorId       String
+  body           String
+  createdAt      DateTime  @default(now())
+  deletedAt      DateTime?
+
+  spendRequest SpendRequest @relation(fields: [spendRequestId], references: [id])
+  author       User         @relation(fields: [authorId], references: [id])
+
+  @@map("comments")
+}
+
+// ---------------------------------------------------------------------------
+// AUDIT LOG (append-only)
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  orgId        String
+  actorId      String?
+  actorEmail   String   @default("")
+  action       String
+  resourceType String
+  resourceId   String
+  diffJson     Json?
+  ipAddress    String   @default("")
+  userAgent    String   @default("")
+  createdAt    DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// NOTIFICATION
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id           String   @id @default(uuid())
+  orgId        String
+  userId       String
+  type         AlertType
+  title        String
+  body         String
+  metadataJson Json?
+  isRead       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  org  Organization @relation(fields: [orgId], references: [id])
+  user User         @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}

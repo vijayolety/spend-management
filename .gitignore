@@ -1,0 +1,50 @@
+# ── Dependencies ─────────────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+
+# ── Environment / Secrets ─────────────────────────────────────────────
+# Ignore all .env files; keep .env.example safe to commit
+.env
+.env.*
+!.env.example
+
+# ── Build outputs ────────────────────────────────────────────────────
+dist/
+build/
+out/
+
+# ── Next.js ──────────────────────────────────────────────────────────
+.next/
+next-env.d.ts
+
+# ── TypeScript ───────────────────────────────────────────────────────
+*.tsbuildinfo
+
+# ── Test & coverage ──────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── Logs ─────────────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Claude AI (session data, memory, conversation history) ───────────
+.claude/
+
+# ── Design reference ─────────────────────────────────────────────────
+Spend_Management.html
+
+# ── OS artefacts ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Editor ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
