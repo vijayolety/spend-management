@@ -25,7 +25,9 @@ export class ToolsService {
     const monoBg = MONO_COLORS[count % MONO_COLORS.length];
     const initials = dto.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || 'T';
 
-    const tool = await this.prisma.tool.create({
+    let tool: any;
+    try {
+    tool = await this.prisma.tool.create({
       data: {
         orgId,
         departmentId: dto.departmentId,
@@ -48,6 +50,12 @@ export class ToolsService {
         },
       },
     });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ConflictException(`A tool named "${dto.name}" already exists in this workspace`);
+      }
+      throw err;
+    }
 
     await this.audit.log(orgId, actorId, 'tool.created', 'Tool', tool.id, null, tool);
     return tool;
@@ -80,20 +88,28 @@ export class ToolsService {
   async update(id: string, orgId: string, actorId: string, dto: UpdateToolDto) {
     const existing = await this.findOne(id, orgId);
 
-    const updated = await this.prisma.tool.update({
-      where: { id },
-      data: {
-        name: dto.name,
-        vendor: dto.vendor,
-        category: dto.category as any,
-        paymentKind: dto.paymentKind as any,
-        capAmount: dto.capAmount,
-        monthlyAmount: dto.monthlyAmount,
-        alertThresholdPct: dto.alertThresholdPct,
-        triggerEmail: dto.triggerEmail,
-        renewalDate: dto.renewalDate ? new Date(dto.renewalDate) : undefined,
-      },
-    });
+    let updated: any;
+    try {
+      updated = await this.prisma.tool.update({
+        where: { id },
+        data: {
+          name: dto.name,
+          vendor: dto.vendor,
+          category: dto.category as any,
+          paymentKind: dto.paymentKind as any,
+          capAmount: dto.capAmount,
+          monthlyAmount: dto.monthlyAmount,
+          alertThresholdPct: dto.alertThresholdPct,
+          triggerEmail: dto.triggerEmail,
+          renewalDate: dto.renewalDate ? new Date(dto.renewalDate) : undefined,
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ConflictException(`A tool named "${dto.name}" already exists in this workspace`);
+      }
+      throw err;
+    }
 
     if (dto.alertThresholdPct !== undefined || dto.triggerEmail !== undefined) {
       await this.prisma.alertConfig.updateMany({

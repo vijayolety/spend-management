@@ -11,6 +11,7 @@ interface KPIs {
   alertCount: number;
   toolCount: number;
   noBudgetCount: number;
+  renewalCount: number;
   nearestRenewal: { name: string; date: string; daysAway: number } | null;
 }
 
@@ -36,7 +37,7 @@ const TABS = [
 ];
 
 const GRID = 'minmax(200px,2.1fr) 1.15fr 1fr 1.95fr 1.7fr 1.15fr 60px';
-const HEADERS = ['Tool', 'Category', 'Payment', 'Budget Status', 'Alert Trigger', 'Next Renewal', 'Actions'];
+const HEADERS = ['Tool', 'Category', 'Payment', 'Budget Status', 'Alert / Renewal Trigger', 'Next Renewal', 'Actions'];
 
 function computeRow(t: Tool) {
   let statusMain = '';
@@ -48,10 +49,8 @@ function computeRow(t: Tool) {
   const barColor = t.alert ? 'linear-gradient(90deg,#C9352B,#F85149)' : t.barPct >= 75 ? 'linear-gradient(90deg,#D9881F,#F5A623)' : t.paymentKind === 'PREPAID' ? 'linear-gradient(90deg,#2EA043,#3FB950)' : 'linear-gradient(90deg,#4F5BD5,#6470e0)';
 
   let renewMain = '—'; let renewSub = ''; let renewColor = '#9aa0ab'; let renewUrgent = false;
-  if (t.paymentKind === 'PREPAID') {
-    if (t.alert) { renewMain = 'Alert active'; renewSub = `breached ${t.alertThresholdPct}%`; renewColor = '#F85149'; }
-    else { renewMain = 'Top-up rule'; renewSub = `at ${t.alertThresholdPct}% used`; renewColor = '#9aa0ab'; }
-  } else if (t.renewalDate) {
+
+  if (t.renewalDate) {
     renewMain = fmtDate(t.renewalDate);
     const days = t.daysUntilRenewal;
     renewUrgent = days != null && days <= 5;
@@ -62,6 +61,9 @@ function computeRow(t: Tool) {
       renewSub = days != null && days <= 30 ? `in ${days}d` : 'auto-renews';
       renewColor = '#cfd3da';
     }
+  } else if (t.paymentKind === 'PREPAID') {
+    if (t.alert) { renewMain = 'Alert active'; renewSub = `breached ${t.alertThresholdPct}%`; renewColor = '#F85149'; }
+    else { renewMain = 'Top-up rule'; renewSub = `at ${t.alertThresholdPct}% used`; renewColor = '#9aa0ab'; }
   }
 
   const payBg = t.paymentKind === 'PREPAID' ? 'rgba(94,106,210,0.14)' : 'rgba(255,255,255,0.05)';
@@ -93,16 +95,16 @@ export default function DashboardPage() {
 
   async function deleteTool(id: string, name: string) {
     await api.delete(`/tools/${id}`);
-    setTools((prev) => prev.filter((t) => t.id !== id));
     showToast(`${name} deleted`);
     setConfirmDelete(null);
+    load();
   }
 
   async function duplicateTool(id: string, name: string) {
-    const copy = await api.post<Tool>(`/tools/${id}/duplicate`);
-    setTools((prev) => [...prev, copy]);
+    await api.post<Tool>(`/tools/${id}/duplicate`);
     showToast(`${name} (copy) created`);
     setOpenMenu(null);
+    load();
   }
 
   const displayed = filter === 'All' ? tools
@@ -113,7 +115,7 @@ export default function DashboardPage() {
   const noBudgetNames = tools.filter((t) => t.paymentKind === 'NOBUDGET').map((t) => t.name).join(' & ') || 'None';
   const alertDetail = tools.filter((t) => t.alert)[0];
   const renewalTools = tools.filter((t) => t.daysUntilRenewal !== null).sort((a, b) => (a.daysUntilRenewal ?? 999) - (b.daysUntilRenewal ?? 999));
-  const nearestRenewalText = kpis?.nearestRenewal ? `${kpis.nearestRenewal.name} in ${kpis.nearestRenewal.daysAway}d` : 'No upcoming renewals';
+  const nearestRenewalText = (kpis?.renewalCount ?? 0) === 0 ? 'No upcoming renewals' : 'within the next 5 days';
 
   return (
     <div className="p-6">
@@ -190,7 +192,7 @@ export default function DashboardPage() {
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2.5" y="3" width="11" height="11" rx="2"/><line x1="2.5" y1="6.2" x2="13.5" y2="6.2"/><line x1="5.5" y1="1.5" x2="5.5" y2="4"/><line x1="10.5" y1="1.5" x2="10.5" y2="4"/></svg>
               </span>
             </div>
-            <div style={{ fontSize: 28, fontWeight: 680, color: '#F2F3F5', letterSpacing: '-.02em', lineHeight: 1 }}>{renewalTools.length}</div>
+            <div style={{ fontSize: 28, fontWeight: 680, color: '#F2F3F5', letterSpacing: '-.02em', lineHeight: 1 }}>{kpis?.renewalCount ?? 0}</div>
             <div style={{ fontSize: 12, color: '#6b707b', marginTop: 11 }}>{nearestRenewalText}</div>
           </div>
         </div>
@@ -279,10 +281,10 @@ export default function DashboardPage() {
 
       {/* Modals */}
       {showAdd && (
-        <AddToolModal onClose={() => setShowAdd(false)} onCreated={(t) => { setTools((prev) => [...prev, t]); showToast(`${t.name} added`); setShowAdd(false); }} />
+        <AddToolModal onClose={() => setShowAdd(false)} onCreated={(t) => { showToast(`${t.name} added`); setShowAdd(false); load(); }} />
       )}
       {editTool && (
-        <AddToolModal tool={editTool} onClose={() => setEditTool(null)} onCreated={(updated) => { setTools((prev) => prev.map((t) => t.id === updated.id ? { ...t, ...updated } : t)); showToast(`${updated.name} updated`); setEditTool(null); }} />
+        <AddToolModal tool={editTool} onClose={() => setEditTool(null)} onCreated={(updated) => { showToast(`${updated.name} updated`); setEditTool(null); load(); }} />
       )}
       {confirmDelete && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.6)' }}>
@@ -348,6 +350,11 @@ function ToolRow({ tool, statusMain, statusSubColor, barColor, renewMain, renewS
             <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M8 2.5L14.5 13H1.5L8 2.5Z" strokeLinejoin="round"/><line x1="8" y1="6.5" x2="8" y2="9"/></svg>
             No Budget Set
           </span>
+        ) : tool.paymentKind === 'MOSUB' ? (
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#cfd3da', letterSpacing: '-.01em' }}>{statusMain}</div>
+            <div style={{ fontSize: 10.5, color: '#6b707b', marginTop: 2 }}>flat rate · no cap</div>
+          </div>
         ) : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
@@ -370,7 +377,9 @@ function ToolRow({ tool, statusMain, statusSubColor, barColor, renewMain, renewS
             </span>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 12, color: '#c2c6cf', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tool.triggerEmail}</div>
-              <div style={{ fontSize: 10.5, color: '#6b707b' }}>at {tool.alertThresholdPct}% usage</div>
+              <div style={{ fontSize: 10.5, color: '#6b707b' }}>
+                {tool.paymentKind === 'MOSUB' ? 'renewal reminder' : `at ${tool.alertThresholdPct}% usage`}
+              </div>
             </div>
           </div>
         ) : (

@@ -65,7 +65,7 @@ export function AddToolModal({ onClose, onCreated, tool }: Props) {
     e.preventDefault();
     if (!form.name.trim()) { setError('Tool name is required'); return; }
     if (!form.vendor.trim()) { setError('Vendor is required'); return; }
-    if (!form.triggerEmail.trim()) { setError('Alert recipient is required'); return; }
+    if (form.paymentKind !== 'NOBUDGET' && !form.triggerEmail.trim()) { setError('Notification email is required'); return; }
     if (form.paymentKind === 'PREPAID' && !form.capAmount) { setError('Budget cap is required for Pre-paid tools'); return; }
     if (form.paymentKind === 'MOSUB' && !form.monthlyAmount) { setError('Monthly amount is required for Subscription tools'); return; }
     setError(''); setLoading(true);
@@ -77,8 +77,8 @@ export function AddToolModal({ onClose, onCreated, tool }: Props) {
         paymentKind: form.paymentKind,
         capAmount: form.capAmount ? Number(form.capAmount) : undefined,
         monthlyAmount: form.monthlyAmount ? Number(form.monthlyAmount) : undefined,
-        alertThresholdPct: Number(form.alertThresholdPct),
-        triggerEmail: `${form.triggerEmail.trim()}@life180labs.com`,
+        alertThresholdPct: form.paymentKind === 'PREPAID' ? Number(form.alertThresholdPct) : undefined,
+        triggerEmail: form.paymentKind !== 'NOBUDGET' ? `${form.triggerEmail.trim()}@life180labs.com` : undefined,
         renewalDate: form.renewalDate ? new Date(form.renewalDate).toISOString() : undefined,
       };
 
@@ -153,13 +153,35 @@ export function AddToolModal({ onClose, onCreated, tool }: Props) {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-[#9aa0ab] mb-1.5">Alert threshold (%) *</label>
-              <input required type="number" min={1} max={100} value={form.alertThresholdPct} onChange={set('alertThresholdPct')} className="w-full px-3 py-2 text-sm rounded-lg" style={inputStyle} />
+          {form.paymentKind === 'PREPAID' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-[#9aa0ab] mb-1.5">Alert threshold (%) *</label>
+                <input required type="number" min={1} max={100} value={form.alertThresholdPct} onChange={set('alertThresholdPct')} className="w-full px-3 py-2 text-sm rounded-lg" style={inputStyle} />
+              </div>
+              <div>
+                <label className="block text-xs text-[#9aa0ab] mb-1.5">Send alert to *</label>
+                <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <input
+                    required
+                    type="text"
+                    value={form.triggerEmail}
+                    onChange={(e) => setForm({ ...form, triggerEmail: e.target.value.replace(/[@\s]/g, '') })}
+                    className="flex-1 min-w-0 px-3 py-2 text-sm"
+                    style={{ background: '#1B1E26', color: '#F0F0F0', border: 'none', outline: 'none' }}
+                    placeholder="admin"
+                  />
+                  <span className="flex items-center px-2.5 text-xs text-[#5E6AD2] font-medium whitespace-nowrap" style={{ background: '#161924', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+                    @life180labs.com
+                  </span>
+                </div>
+              </div>
             </div>
+          )}
+
+          {form.paymentKind === 'MOSUB' && (
             <div>
-              <label className="block text-xs text-[#9aa0ab] mb-1.5">Send alert to *</label>
+              <label className="block text-xs text-[#9aa0ab] mb-1.5">Renewal notification email *</label>
               <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
                 <input
                   required
@@ -174,8 +196,9 @@ export function AddToolModal({ onClose, onCreated, tool }: Props) {
                   @life180labs.com
                 </span>
               </div>
+              <p className="mt-1.5 text-xs text-[#5e636e]">Notified when the renewal date is approaching</p>
             </div>
-          </div>
+          )}
 
           <div>
             <label className="block text-xs text-[#9aa0ab] mb-1.5">Renewal date</label>

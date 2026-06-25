@@ -162,24 +162,39 @@ export class ReportsService {
       this.prisma.tool.count({ where: { orgId, deletedAt: null, paymentKind: 'NOBUDGET' } }),
     ]);
 
-    const nearestRenewal = await this.prisma.tool.findFirst({
-      where: { orgId, deletedAt: null, renewalDate: { gte: new Date() } },
-      orderBy: { renewalDate: 'asc' },
-      select: { name: true, renewalDate: true },
-    });
+    // Use start-of-today so tools with today's renewal date are included
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const fiveDaysLater = new Date(startOfToday);
+    fiveDaysLater.setDate(fiveDaysLater.getDate() + 5);
+    fiveDaysLater.setHours(23, 59, 59, 999);
+
+    const renewalWindow = { gte: startOfToday, lte: fiveDaysLater };
+
+    const [nearestRenewal, renewalCount] = await Promise.all([
+      this.prisma.tool.findFirst({
+        where: { orgId, deletedAt: null, renewalDate: renewalWindow },
+        orderBy: { renewalDate: 'asc' },
+        select: { name: true, renewalDate: true },
+      }),
+      this.prisma.tool.count({
+        where: { orgId, deletedAt: null, renewalDate: renewalWindow },
+      }),
+    ]);
 
     return {
       totalMonthlySpend: totalThisMonth._sum.amount || 0,
       alertCount,
       toolCount,
       noBudgetCount,
+      renewalCount,
       nearestRenewal: nearestRenewal
         ? {
             name: nearestRenewal.name,
             date: nearestRenewal.renewalDate,
-            daysAway: Math.ceil(
-              (new Date(nearestRenewal.renewalDate!).getTime() - Date.now()) / 86400000,
-            ),
+            daysAway: Math.max(0, Math.ceil(
+              (new Date(nearestRenewal.renewalDate!).getTime() - startOfToday.getTime()) / 86400000,
+            )),
           }
         : null,
     };
