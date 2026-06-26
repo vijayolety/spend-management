@@ -142,18 +142,11 @@ export default function DashboardPage() {
           <div style={{ background: '#101218', border: '1px solid #1E212A', borderRadius: 14, padding: '18px 20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <span style={{ fontSize: 12, color: '#878c96', fontWeight: 500 }}>Total Monthly Spend</span>
-              <span style={{ color: '#5E6AD2', display: 'flex', width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'rgba(94,106,210,.12)' }}>
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9.5 4.5H5.8a1.8 1.8 0 0 0 0 3.6h1.4a1.8 1.8 0 0 1 0 3.6H4.5" strokeLinecap="round"/><line x1="7" y1="2.5" x2="7" y2="4.5" strokeLinecap="round"/><line x1="7" y1="11.7" x2="7" y2="13.5" strokeLinecap="round"/></svg>
+              <span style={{ color: '#5E6AD2', display: 'flex', width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'rgba(94,106,210,.12)', fontSize: 16, fontWeight: 700 }}>
+                ₹
               </span>
             </div>
-            <div style={{ fontSize: 28, fontWeight: 680, color: '#F2F3F5', letterSpacing: '-.02em', lineHeight: 1 }}>{fmt(kpis.totalMonthlySpend)}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 11, fontSize: 12 }}>
-              <span style={{ color: '#3FB950', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 600 }}>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 8L6 4.5L9.5 8"/></svg>
-                8.2%
-              </span>
-              <span style={{ color: '#6b707b' }}>vs last month</span>
-            </div>
+            <div style={{ fontSize: 28, fontWeight: 680, color: '#F2F3F5', letterSpacing: '-.02em', lineHeight: 1 }}>₹{Number(kpis.totalMonthlySpend).toLocaleString('en-IN')}</div>
           </div>
 
           {/* Card 2: Tools Needing Budget Setup */}
@@ -165,7 +158,7 @@ export default function DashboardPage() {
               </span>
             </div>
             <div style={{ fontSize: 28, fontWeight: 680, color: '#F5A623', letterSpacing: '-.02em', lineHeight: 1 }}>{kpis.noBudgetCount}</div>
-            <div style={{ fontSize: 12, color: '#8a7d5e', marginTop: 11 }}>{kpis.noBudgetCount > 0 ? `${noBudgetNames} — uncapped` : 'All tools have budgets'}</div>
+            <div style={{ fontSize: 12, color: '#8a7d5e', marginTop: 11 }}>{kpis.noBudgetCount > 0 ? `${noBudgetNames} — uncapped` : 'All tools are configured'}</div>
           </div>
 
           {/* Card 3: Active Threshold Alerts */}
@@ -240,6 +233,7 @@ export default function DashboardPage() {
               statusMain={statusMain} statusSubColor={statusSubColor} barColor={barColor}
               renewMain={renewMain} renewSub={renewSub} renewColor={renewColor} renewUrgent={renewUrgent}
               payBg={payBg} payColor={payColor} payLabel={payLabel}
+              onEdit={() => setEditTool(tool)}
               onMenu={(e) => {
                 const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
@@ -317,12 +311,13 @@ export default function DashboardPage() {
   );
 }
 
-function ToolRow({ tool, statusMain, statusSubColor, barColor, renewMain, renewSub, renewColor, renewUrgent, payBg, payColor, payLabel, onMenu }: any) {
+function ToolRow({ tool, statusMain, statusSubColor, barColor, renewMain, renewSub, renewColor, renewUrgent, payBg, payColor, payLabel, onEdit, onMenu }: any) {
   const [hover, setHover] = useState(false);
   return (
     <div
       style={{ display: 'grid', gridTemplateColumns: 'minmax(200px,2.1fr) 1.15fr 1fr 1.95fr 1.7fr 1.15fr 60px', alignItems: 'center', padding: '13px 22px', borderBottom: '1px solid #15181E', background: hover ? '#121419' : 'transparent', boxShadow: `inset 2px 0 0 ${tool.alert ? '#F85149' : 'transparent'}`, transition: 'background .12s', cursor: 'pointer' }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      onClick={onEdit}
     >
       {/* Tool */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, paddingRight: 10 }}>

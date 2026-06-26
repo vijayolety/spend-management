@@ -147,11 +147,27 @@ export class ReportsService {
   async dashboardKpis(orgId: string) {
     const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
 
-    const [totalThisMonth, alertCount, toolCount, noBudgetCount] = await Promise.all([
-      this.prisma.billingRecord.aggregate({
-        where: { orgId, monthKey: currentMonth },
-        _sum: { amount: true },
-      }),
+    // Get historical billing records for this month
+    const billingSum = await this.prisma.billingRecord.aggregate({
+      where: { orgId, monthKey: currentMonth },
+      _sum: { amount: true },
+    });
+    const historicalSpend = billingSum._sum.amount || 0;
+
+    // Get real-time tool spend (subscription tools use monthlyAmount, prepaid use usedAmount)
+    const tools = await this.prisma.tool.findMany({
+      where: { orgId, deletedAt: null },
+      select: { paymentKind: true, monthlyAmount: true, usedAmount: true },
+    });
+    const realtimeSpend = tools.reduce((sum, t) => {
+      if (t.paymentKind === 'NOBUDGET') return sum;
+      const amount = (t.paymentKind === 'PREPAID' || t.paymentKind === 'CAPSUB') ? t.usedAmount : t.monthlyAmount;
+      return sum + (amount || 0);
+    }, 0);
+
+    const totalThisMonth = historicalSpend + realtimeSpend;
+
+    const [alertCount, toolCount, noBudgetCount] = await Promise.all([
       this.prisma.$queryRaw<[{ count: bigint }]>`
         SELECT COUNT(*)::bigint as count FROM tools
         WHERE "orgId" = ${orgId} AND "deletedAt" IS NULL
@@ -183,7 +199,7 @@ export class ReportsService {
     ]);
 
     return {
-      totalMonthlySpend: totalThisMonth._sum.amount || 0,
+      totalMonthlySpend: totalThisMonth,
       alertCount,
       toolCount,
       noBudgetCount,

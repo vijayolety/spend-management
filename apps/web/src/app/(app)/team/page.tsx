@@ -34,12 +34,8 @@ export default function TeamPage() {
         <p style={{ fontSize: 12, color: '#767b86', margin: 0 }}>People with access to this workspace.</p>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+      <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 13, color: '#878c96' }}>{users.length} members with workspace access</div>
-        <button style={{ display: 'flex', alignItems: 'center', gap: 7, background: '#16181F', border: '1px solid #232730', color: '#c2c6cf', fontSize: 12.5, fontWeight: 550, padding: '8px 14px', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit' }}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="6" cy="5.5" r="2.5"/><path d="M2 13c0-2.2 1.8-4 4-4"/><line x1="12" y1="6" x2="12" y2="11"/><line x1="9.5" y1="8.5" x2="14.5" y2="8.5"/></svg>
-          Invite member
-        </button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
