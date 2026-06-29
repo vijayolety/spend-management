@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function fmt(n: number, currency = '₹'): string {
-  return `${currency}${Number(n).toLocaleString('en-IN')}`;
+  return `${currency}${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 
 export function fmtDate(d: string | Date): string {

@@ -73,12 +73,41 @@ export class BillingService {
       take: 12,
     });
 
-    return records.map((r) => ({
+    const summary = records.map((r) => ({
       monthKey: r.monthKey,
       monthLabel: this.formatMonthLabel(r.monthKey),
       total: r._sum.amount || 0,
       count: r._count.id,
     }));
+
+    // The current month is not billed yet, so it has no records. Derive its
+    // total from live tool spend so the month filter reflects current usage.
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const tools = await this.prisma.tool.findMany({
+      where: { orgId, deletedAt: null, paymentKind: { not: 'NOBUDGET' } },
+      select: { paymentKind: true, usedAmount: true, monthlyAmount: true },
+    });
+
+    let liveTotal = 0;
+    let liveCount = 0;
+    for (const t of tools) {
+      const usageBased = t.paymentKind === 'PREPAID' || t.paymentKind === 'CAPSUB';
+      const amount = (usageBased ? t.usedAmount : t.monthlyAmount) || 0;
+      if (amount > 0) {
+        liveTotal += amount;
+        liveCount++;
+      }
+    }
+
+    if (liveTotal > 0) {
+      const withoutCurrent = summary.filter((s) => s.monthKey !== currentMonth);
+      return [
+        { monthKey: currentMonth, monthLabel: this.formatMonthLabel(currentMonth), total: liveTotal, count: liveCount },
+        ...withoutCurrent,
+      ];
+    }
+
+    return summary;
   }
 
   private formatMonthLabel(monthKey: string): string {

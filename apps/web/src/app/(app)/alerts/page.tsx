@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { fmtDate } from '@/lib/utils';
 
@@ -52,7 +53,7 @@ export default function AlertsPage() {
         {thresholdBreaches.length === 0 ? (
           <div style={{ background: '#0E1014', border: '1px solid rgba(248,81,73,.12)', borderRadius: 13, padding: '18px 20px', fontSize: 13, color: '#5e636e' }}>No active threshold breaches</div>
         ) : thresholdBreaches.map((t) => (
-          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 14, background: 'linear-gradient(120deg,rgba(248,81,73,.07),#0E1014 70%)', border: '1px solid rgba(248,81,73,.28)', borderRadius: 13, padding: '15px 18px', cursor: 'pointer', marginBottom: 10 }}>
+          <Link key={t.id} href="/dashboard" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 14, background: 'linear-gradient(120deg,rgba(248,81,73,.07),#0E1014 70%)', border: '1px solid rgba(248,81,73,.28)', borderRadius: 13, padding: '15px 18px', cursor: 'pointer', marginBottom: 10 }}>
             <div style={{ width: 38, height: 38, borderRadius: 10, background: t.monoBgColor, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{t.monoInitials}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600, color: '#F2F3F5' }}>{t.name}</div>
@@ -63,7 +64,7 @@ export default function AlertsPage() {
               <div style={{ fontSize: 12, color: '#c2c6cf', fontWeight: 500 }}>{t.triggerEmail || '—'}</div>
             </div>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5e636e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M6 3.5L10.5 8L6 12.5"/></svg>
-          </div>
+          </Link>
         ))}
       </div>
 
@@ -77,14 +78,14 @@ export default function AlertsPage() {
         {noBudget.length === 0 ? (
           <div style={{ background: '#0E1014', border: '1px solid rgba(245,166,35,.12)', borderRadius: 13, padding: '18px 20px', fontSize: 13, color: '#5e636e' }}>All tools have budgets configured</div>
         ) : noBudget.map((t) => (
-          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 14, background: '#0E1014', border: '1px solid rgba(245,166,35,.25)', borderRadius: 13, padding: '15px 18px', cursor: 'pointer', marginBottom: 10 }}>
+          <Link key={t.id} href="/dashboard" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 14, background: '#0E1014', border: '1px solid rgba(245,166,35,.25)', borderRadius: 13, padding: '15px 18px', cursor: 'pointer', marginBottom: 10 }}>
             <div style={{ width: 38, height: 38, borderRadius: 10, background: t.monoBgColor, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{t.monoInitials}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600, color: '#F2F3F5' }}>{t.name}</div>
               <div style={{ fontSize: 12, color: '#9aa0ab', marginTop: 2 }}>No budget configured — uncapped spend</div>
             </div>
             <span style={{ fontSize: 11.5, fontWeight: 600, color: '#d99e3e', background: 'rgba(245,166,35,.1)', border: '1px solid rgba(245,166,35,.28)', padding: '5px 12px', borderRadius: 8, flexShrink: 0 }}>Set budget →</span>
-          </div>
+          </Link>
         ))}
       </div>
 
@@ -98,7 +99,7 @@ export default function AlertsPage() {
           {renewals.length === 0 ? (
             <div style={{ padding: '18px 20px', fontSize: 13, color: '#5e636e' }}>No upcoming renewals</div>
           ) : renewals.map((t, i) => (
-            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 18px', borderBottom: i < renewals.length - 1 ? '1px solid #15181E' : 'none', cursor: 'pointer' }}>
+            <Link key={t.id} href="/dashboard" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 14, padding: '13px 18px', borderBottom: i < renewals.length - 1 ? '1px solid #15181E' : 'none', cursor: 'pointer' }}>
               <div style={{ width: 32, height: 32, borderRadius: 9, background: t.monoBgColor, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{t.monoInitials}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 550, color: '#E6E8EC' }}>{t.name}</div>
@@ -108,7 +109,7 @@ export default function AlertsPage() {
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: renewColor(t.daysUntilRenewal) }}>{t.renewalDate ? fmtDate(t.renewalDate) : '—'}</div>
                 <div style={{ fontSize: 11, color: '#6b707b' }}>{t.daysUntilRenewal !== null ? `in ${t.daysUntilRenewal}d` : ''}</div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       </div>

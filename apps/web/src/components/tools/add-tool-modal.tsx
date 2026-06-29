@@ -23,8 +23,10 @@ interface ExistingTool {
   capAmount: number;
   monthlyAmount: number;
   alertThresholdPct: number;
-  triggerEmail?: string;
+  triggerEmail?: string | null;
   renewalDate?: string | null;
+  alert?: boolean;
+  barPct?: number;
 }
 
 interface Props {
@@ -103,6 +105,18 @@ export function AddToolModal({ onClose, onCreated, tool }: Props) {
           <h2 className="text-base font-semibold text-[#F0F0F0]">{isEdit ? 'Edit Tool' : 'Add Tool'}</h2>
           <button onClick={onClose} className="text-[#9aa0ab] hover:text-[#F0F0F0]"><X size={16} /></button>
         </div>
+
+        {isEdit && tool?.alert && (
+          <div className="mb-4 p-3 rounded-xl flex items-start gap-2.5" style={{ background: 'rgba(248,81,73,0.08)', border: '1px solid rgba(248,81,73,0.28)' }}>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#F85149" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}><path d="M8 2.5L14.5 13H1.5L8 2.5Z" strokeLinejoin="round"/><line x1="8" y1="6.5" x2="8" y2="9"/><circle cx="8" cy="11" r=".5" fill="#F85149"/></svg>
+            <div>
+              <p className="text-xs font-semibold" style={{ color: '#F85149', marginBottom: 2 }}>Alert Active</p>
+              <p className="text-xs" style={{ color: '#c97070' }}>
+                Budget threshold of {tool.alertThresholdPct}% has been breached — currently at {tool.barPct}% used.
+              </p>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 p-3 rounded-lg text-xs text-[#F85149]" style={{ background: 'rgba(248,81,73,0.1)' }}>

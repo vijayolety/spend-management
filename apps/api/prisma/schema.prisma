@@ -274,8 +274,31 @@ model Tool {
   alertConfigs   AlertConfig[]
   budgets        Budget[]       @relation("ToolBudgets")
   spendRequests  SpendRequest[]
+  integration    ToolIntegration?
 
   @@map("tools")
+}
+
+// ---------------------------------------------------------------------------
+// TOOL INTEGRATION (flexible data-source connector per tool)
+// ---------------------------------------------------------------------------
+
+model ToolIntegration {
+  id                String    @id @default(uuid())
+  toolId            String    @unique
+  provider          String    // RAILWAY | GEMINI | AWS | DATADOG | ...
+  config            Json      // provider-specific credentials & settings
+  syncEveryMinutes  Int       @default(15)
+  lastSyncAt        DateTime?
+  lastSyncAmountINR Float?
+  lastError         String?
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tool Tool @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@map("tool_integrations")
 }
 
 // ---------------------------------------------------------------------------

@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
-import { fmt, fmtDate } from '@/lib/utils';
+import { fmtDate } from '@/lib/utils';
 import { AddToolModal } from '@/components/tools/add-tool-modal';
+import { IntegrationModal } from '@/components/tools/integration-modal';
 
 interface KPIs {
   totalMonthlySpend: number;
@@ -22,6 +23,7 @@ interface Tool {
   barPct: number; alertThresholdPct: number; alert: boolean;
   statusSub: string; triggerEmail: string | null;
   renewalDate: string | null; daysUntilRenewal: number | null;
+  integration: { provider: string; lastSyncAt: string | null; lastSyncAmountINR: number | null; isActive: boolean; lastError: string | null } | null;
 }
 
 const CAT_LABELS: Record<string, string> = {
@@ -39,11 +41,20 @@ const TABS = [
 const GRID = 'minmax(200px,2.1fr) 1.15fr 1fr 1.95fr 1.7fr 1.15fr 60px';
 const HEADERS = ['Tool', 'Category', 'Payment', 'Budget Status', 'Alert / Renewal Trigger', 'Next Renewal', 'Actions'];
 
-function computeRow(t: Tool) {
+function makeFmt(currency: 'INR' | 'USD', fxRate: number) {
+  return (inrAmount: number) => {
+    if (currency === 'INR') {
+      return `₹${Number(inrAmount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+    }
+    return `$${(inrAmount / fxRate).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  };
+}
+
+function computeRow(t: Tool, fmtAmt: (n: number) => string) {
   let statusMain = '';
-  if (t.paymentKind === 'PREPAID') statusMain = `₹${fmt(t.usedAmount, '')} / ₹${fmt(t.capAmount, '')}`;
-  else if (t.paymentKind === 'CAPSUB') statusMain = `₹${fmt(t.monthlyAmount, '')} / ₹${fmt(t.capAmount, '')}`;
-  else if (t.paymentKind === 'MOSUB') statusMain = `₹${fmt(t.monthlyAmount, '')} / mo`;
+  if (t.paymentKind === 'PREPAID') statusMain = `${fmtAmt(t.usedAmount)} / ${fmtAmt(t.capAmount)}`;
+  else if (t.paymentKind === 'CAPSUB') statusMain = `${fmtAmt(t.monthlyAmount)} / ${fmtAmt(t.capAmount)}`;
+  else if (t.paymentKind === 'MOSUB') statusMain = `${fmtAmt(t.monthlyAmount)} / mo`;
 
   const statusSubColor = t.alert ? '#F85149' : t.barPct >= 75 ? '#F5A623' : t.paymentKind === 'PREPAID' && t.barPct < 70 ? '#3FB950' : '#9aa0ab';
   const barColor = t.alert ? 'linear-gradient(90deg,#C9352B,#F85149)' : t.barPct >= 75 ? 'linear-gradient(90deg,#D9881F,#F5A623)' : t.paymentKind === 'PREPAID' ? 'linear-gradient(90deg,#2EA043,#3FB950)' : 'linear-gradient(90deg,#4F5BD5,#6470e0)';
@@ -82,7 +93,24 @@ export default function DashboardPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editTool, setEditTool] = useState<Tool | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Tool | null>(null);
+  const [integrationTool, setIntegrationTool] = useState<Tool | null>(null);
   const [toast, setToast] = useState('');
+  const [currency, setCurrency] = useState<'INR' | 'USD'>('INR');
+  const [fxRate, setFxRate] = useState(94.4);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('spend_currency') as 'INR' | 'USD' | null;
+    if (saved) setCurrency(saved);
+    fetch('https://api.frankfurter.app/latest?from=USD&to=INR')
+      .then((r) => r.json())
+      .then((d: any) => { if (d?.rates?.INR) setFxRate(d.rates.INR); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('spend_currency', currency);
+    window.dispatchEvent(new CustomEvent('spend_currency_change', { detail: currency }));
+  }, [currency]);
 
   const load = useCallback(async () => {
     const [k, t] = await Promise.all([api.get<KPIs>('/reports/dashboard-kpis'), api.get<Tool[]>('/tools')]);
@@ -90,6 +118,12 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-refresh every 30s so synced spend data appears without manual reload
+  useEffect(() => {
+    const id = setInterval(load, 30_000);
+    return () => clearInterval(id);
+  }, [load]);
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 2600); }
 
@@ -113,8 +147,6 @@ export default function DashboardPage() {
     : tools.filter((t) => ['MOSUB', 'CAPSUB'].includes(t.paymentKind));
 
   const noBudgetNames = tools.filter((t) => t.paymentKind === 'NOBUDGET').map((t) => t.name).join(' & ') || 'None';
-  const alertDetail = tools.filter((t) => t.alert)[0];
-  const renewalTools = tools.filter((t) => t.daysUntilRenewal !== null).sort((a, b) => (a.daysUntilRenewal ?? 999) - (b.daysUntilRenewal ?? 999));
   const nearestRenewalText = (kpis?.renewalCount ?? 0) === 0 ? 'No upcoming renewals' : 'within the next 5 days';
 
   return (
@@ -126,6 +158,14 @@ export default function DashboardPage() {
           <p style={{ fontSize: 12, color: '#767b86', marginTop: 3 }}>Monitor tool budgets, usage and alert thresholds across your stack.</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Currency toggle */}
+          <div style={{ display: 'flex', borderRadius: 8, border: '1px solid #1E212A', overflow: 'hidden' }}>
+            {(['INR', 'USD'] as const).map((c) => (
+              <button key={c} onClick={() => setCurrency(c)} style={{ padding: '6px 13px', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer', background: currency === c ? '#5E6AD2' : 'transparent', color: currency === c ? '#fff' : '#6b707b', transition: 'all .15s' }}>
+                {c === 'INR' ? '₹ INR' : '$ USD'}
+              </button>
+            ))}
+          </div>
           <button onClick={load} style={{ width: 34, height: 34, borderRadius: 9, background: 'transparent', border: '1px solid #1E212A', color: '#6b707b', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <RefreshCw size={13} />
           </button>
@@ -143,10 +183,10 @@ export default function DashboardPage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <span style={{ fontSize: 12, color: '#878c96', fontWeight: 500 }}>Total Monthly Spend</span>
               <span style={{ color: '#5E6AD2', display: 'flex', width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'rgba(94,106,210,.12)', fontSize: 16, fontWeight: 700 }}>
-                ₹
+                {currency === 'INR' ? '₹' : '$'}
               </span>
             </div>
-            <div style={{ fontSize: 28, fontWeight: 680, color: '#F2F3F5', letterSpacing: '-.02em', lineHeight: 1 }}>₹{Number(kpis.totalMonthlySpend).toLocaleString('en-IN')}</div>
+            <div style={{ fontSize: 28, fontWeight: 680, color: '#F2F3F5', letterSpacing: '-.02em', lineHeight: 1 }}>{makeFmt(currency, fxRate)(kpis.totalMonthlySpend)}</div>
           </div>
 
           {/* Card 2: Tools Needing Budget Setup */}
@@ -162,7 +202,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Card 3: Active Threshold Alerts */}
-          <div style={{ background: '#101218', border: '1px solid #1E212A', borderRadius: 14, padding: '18px 20px' }}>
+          <div style={{ background: kpis.alertCount > 0 ? 'linear-gradient(150deg,rgba(248,81,73,.2),#101218 50%)' : '#101218', border: kpis.alertCount > 0 ? '2px solid #F85149' : '1px solid #1E212A', borderRadius: 14, padding: '18px 20px', boxShadow: kpis.alertCount > 0 ? '0 0 16px rgba(248,81,73,.2), inset 0 0 12px rgba(248,81,73,.08)' : 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <span style={{ fontSize: 12, color: '#878c96', fontWeight: 500 }}>Active Threshold Alerts</span>
               <span style={{ color: '#F85149', display: 'flex', width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'rgba(248,81,73,.12)', animation: 'pulseRing 2.4s ease-in-out infinite' }}>
@@ -172,7 +212,7 @@ export default function DashboardPage() {
             <div style={{ fontSize: 28, fontWeight: 680, color: '#F2F3F5', letterSpacing: '-.02em', lineHeight: 1 }}>{kpis.alertCount}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 11, fontSize: 12 }}>
               {kpis.alertCount > 0 ? (
-                <><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#F85149', flexShrink: 0, display: 'inline-block' }} /><span style={{ color: '#878c96' }}>{alertDetail ? `${alertDetail.name} breached ${alertDetail.alertThresholdPct}% · ${alertDetail.barPct}% used` : 'Alert active'}</span></>
+                <><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#F85149', flexShrink: 0, display: 'inline-block' }} /><span style={{ color: '#878c96' }}>Scroll down · alerts highlighted in list</span></>
               ) : <span style={{ color: '#6b707b' }}>No active alerts</span>}
             </div>
           </div>
@@ -225,7 +265,8 @@ export default function DashboardPage() {
 
         {/* Tool rows */}
         {displayed.map((tool) => {
-          const { statusMain, statusSubColor, barColor, renewMain, renewSub, renewColor, renewUrgent, payBg, payColor, payLabel } = computeRow(tool);
+          const fmtAmt = makeFmt(currency, fxRate);
+          const { statusMain, statusSubColor, barColor, renewMain, renewSub, renewColor, renewUrgent, payBg, payColor, payLabel } = computeRow(tool, fmtAmt);
           return (
             <ToolRow
               key={tool.id}
@@ -234,7 +275,8 @@ export default function DashboardPage() {
               renewMain={renewMain} renewSub={renewSub} renewColor={renewColor} renewUrgent={renewUrgent}
               payBg={payBg} payColor={payColor} payLabel={payLabel}
               onEdit={() => setEditTool(tool)}
-              onMenu={(e) => {
+              onIntegration={() => setIntegrationTool(tool)}
+              onMenu={(e: React.MouseEvent) => {
                 const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
                 setOpenMenu(openMenu === tool.id ? null : tool.id);
@@ -249,7 +291,7 @@ export default function DashboardPage() {
           </div>
         )}
         <div style={{ textAlign: 'center', fontSize: 11.5, color: '#4a4f59', padding: '10px 22px 14px' }}>
-          Click any tool row to open its configuration panel
+          Click a tool row to edit · use ⋮ menu to connect an integration
         </div>
       </div>
 
@@ -257,9 +299,14 @@ export default function DashboardPage() {
       {openMenu && (
         <>
           <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setOpenMenu(null)} />
-          <div style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, background: '#1B1E26', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '4px 0', zIndex: 50, minWidth: 150, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+          <div style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, background: '#1B1E26', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '4px 0', zIndex: 50, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
             <DropBtn label="Edit" icon={<PencilIcon />} onClick={() => { setEditTool(tools.find((t) => t.id === openMenu)!); setOpenMenu(null); }} />
             <DropBtn label="Duplicate" icon={<CopyIcon />} onClick={() => { const t = tools.find((t) => t.id === openMenu)!; duplicateTool(t.id, t.name); }} />
+            <DropBtn
+              label={tools.find((t) => t.id === openMenu)?.integration ? 'Integration' : 'Connect Integration'}
+              icon={<PlugIcon />}
+              onClick={() => { setIntegrationTool(tools.find((t) => t.id === openMenu)!); setOpenMenu(null); }}
+            />
             <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '3px 0' }} />
             <DropBtn label="Delete" icon={<TrashIcon />} danger onClick={() => { setConfirmDelete(tools.find((t) => t.id === openMenu)!); setOpenMenu(null); }} />
           </div>
@@ -279,6 +326,14 @@ export default function DashboardPage() {
       )}
       {editTool && (
         <AddToolModal tool={editTool} onClose={() => setEditTool(null)} onCreated={(updated) => { showToast(`${updated.name} updated`); setEditTool(null); load(); }} />
+      )}
+      {integrationTool && (
+        <IntegrationModal
+          toolId={integrationTool.id}
+          toolName={integrationTool.name}
+          onClose={() => setIntegrationTool(null)}
+          onSynced={() => { load(); showToast('Spend data updated'); }}
+        />
       )}
       {confirmDelete && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.6)' }}>
@@ -311,11 +366,13 @@ export default function DashboardPage() {
   );
 }
 
-function ToolRow({ tool, statusMain, statusSubColor, barColor, renewMain, renewSub, renewColor, renewUrgent, payBg, payColor, payLabel, onEdit, onMenu }: any) {
+function ToolRow({ tool, statusMain, statusSubColor, barColor, renewMain, renewSub, renewColor, renewUrgent, payBg, payColor, payLabel, onEdit, onIntegration, onMenu }: any) {
   const [hover, setHover] = useState(false);
+  const hasIntegration = !!tool.integration;
+  const syncError = tool.integration?.lastError;
   return (
     <div
-      style={{ display: 'grid', gridTemplateColumns: 'minmax(200px,2.1fr) 1.15fr 1fr 1.95fr 1.7fr 1.15fr 60px', alignItems: 'center', padding: '13px 22px', borderBottom: '1px solid #15181E', background: hover ? '#121419' : 'transparent', boxShadow: `inset 2px 0 0 ${tool.alert ? '#F85149' : 'transparent'}`, transition: 'background .12s', cursor: 'pointer' }}
+      style={{ display: 'grid', gridTemplateColumns: 'minmax(200px,2.1fr) 1.15fr 1fr 1.95fr 1.7fr 1.15fr 60px', alignItems: 'center', padding: '13px 22px', borderBottom: '1px solid #15181E', background: tool.alert ? (hover ? '#1a1018' : 'rgba(248,81,73,.03)') : (hover ? '#121419' : 'transparent'), boxShadow: `inset 3px 0 0 ${tool.alert ? '#F85149' : 'transparent'}`, transition: 'background .12s', cursor: 'pointer' }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       onClick={onEdit}
     >
@@ -328,7 +385,19 @@ function ToolRow({ tool, statusMain, statusSubColor, barColor, renewMain, renewS
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#34394a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.5 }}><path d="M6 3.5L10.5 8L6 12.5"/></svg>
             {tool.alert && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#F85149', flexShrink: 0, boxShadow: '0 0 0 3px rgba(248,81,73,.15)', display: 'inline-block' }} />}
           </div>
-          <div style={{ fontSize: 11, color: '#6b707b' }}>{tool.vendor}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, color: '#6b707b' }}>{tool.vendor}</span>
+            {hasIntegration && (
+              <button
+                onClick={(e: React.MouseEvent) => { e.stopPropagation(); onIntegration(); }}
+                title={syncError ? `Sync error: ${syncError}` : 'Integration active — click to configure'}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 20, background: syncError ? 'rgba(248,81,73,.12)' : 'rgba(63,185,80,.1)', border: `1px solid ${syncError ? 'rgba(248,81,73,.3)' : 'rgba(63,185,80,.25)'}`, color: syncError ? '#F85149' : '#3FB950', fontSize: 9.5, fontWeight: 600, cursor: 'pointer', letterSpacing: '.03em' }}
+              >
+                <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'currentColor', flexShrink: 0, display: 'inline-block' }} />
+                {syncError ? 'Sync error' : 'Live'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -359,6 +428,12 @@ function ToolRow({ tool, statusMain, statusSubColor, barColor, renewMain, renewS
             <div style={{ height: 6, borderRadius: 999, background: '#1B1E26', overflow: 'hidden' }}>
               <div style={{ height: '100%', borderRadius: 999, width: `${Math.min(100, tool.barPct)}%`, background: barColor }} />
             </div>
+            {tool.alert && (
+              <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', borderRadius: 20, background: 'rgba(248,81,73,.1)', border: '1px solid rgba(248,81,73,.28)' }}>
+                <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="#F85149" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2.5L14.5 13H1.5L8 2.5Z" strokeLinejoin="round"/><line x1="8" y1="6.5" x2="8" y2="9"/></svg>
+                <span style={{ fontSize: 10, fontWeight: 650, color: '#F85149', letterSpacing: '.02em' }}>Alert: {tool.barPct}% used · threshold {tool.alertThresholdPct}%</span>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -445,3 +520,4 @@ function DropBtn({ label, icon, danger, onClick }: { label: string; icon: ReactN
 function PencilIcon() { return <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11.5 2.5a2.1 2.1 0 0 1 3 3L5 15H2v-3L11.5 2.5Z"/></svg>; }
 function CopyIcon() { return <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="5" width="9" height="9" rx="2"/><path d="M4 11H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1"/></svg>; }
 function TrashIcon({ color = 'currentColor' }: { color?: string }) { return <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 13 6"/><path d="M5 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M4 6l1 9h6l1-9"/></svg>; }
+function PlugIcon() { return <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 1v3M10 1v3"/><rect x="3" y="4" width="10" height="5" rx="2"/><path d="M8 9v3"/><path d="M6 12h4"/></svg>; }

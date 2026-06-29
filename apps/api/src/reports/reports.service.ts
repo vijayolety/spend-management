@@ -1,34 +1,112 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+function currentMonthKey(): string {
+  return new Date().toISOString().slice(0, 7); // YYYY-MM
+}
+
+function formatMonthLabel(monthKey: string): string {
+  const [year, month] = monthKey.split('-');
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[parseInt(month) - 1]} ${year}`;
+}
+
+// Shape mirrors a BillingRecord (+ included tool) so the frontend can treat
+// live and historical rows identically.
+export interface SpendRow {
+  id: string;
+  toolId: string | null;
+  monthKey: string;
+  monthLabel: string;
+  amount: number;
+  status: 'PAID' | 'PENDING';
+  tool: { name: string; monoInitials: string; monoBgColor: string; category: string } | null;
+}
+
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
 
-  async spendByCategory(orgId: string, monthKey?: string) {
-    const where: any = { orgId };
-    where.monthKey = monthKey || new Date().toISOString().slice(0, 7);
+  /**
+   * Synthesises billing-record-shaped rows from live tool spend for the
+   * current month. No billing records are written until a month closes, so
+   * without this the Reports screen would be empty for the active period.
+   */
+  private async currentMonthLiveRows(orgId: string): Promise<SpendRow[]> {
+    const monthKey = currentMonthKey();
+    const monthLabel = formatMonthLabel(monthKey);
 
-    const records = await this.prisma.billingRecord.findMany({
-      where,
-      include: { tool: { select: { category: true, name: true } } },
+    const tools = await this.prisma.tool.findMany({
+      where: { orgId, deletedAt: null, paymentKind: { not: 'NOBUDGET' } },
+      select: {
+        id: true, name: true, category: true, monoInitials: true,
+        monoBgColor: true, paymentKind: true, usedAmount: true, monthlyAmount: true,
+      },
     });
+
+    return tools
+      .map((t): SpendRow => {
+        const usageBased = t.paymentKind === 'PREPAID' || t.paymentKind === 'CAPSUB';
+        const amount = (usageBased ? t.usedAmount : t.monthlyAmount) || 0;
+        return {
+          id: `live-${t.id}`,
+          toolId: t.id,
+          monthKey,
+          monthLabel,
+          amount,
+          status: 'PENDING',
+          tool: {
+            name: t.name,
+            monoInitials: t.monoInitials,
+            monoBgColor: t.monoBgColor,
+            category: t.category,
+          },
+        };
+      })
+      .filter((r) => r.amount > 0);
+  }
+
+  async spendByCategory(orgId: string, monthKey?: string) {
+    const targetMonth = monthKey || currentMonthKey();
+
+    let rows: SpendRow[];
+    if (targetMonth === currentMonthKey()) {
+      rows = await this.currentMonthLiveRows(orgId);
+    } else {
+      const records = await this.prisma.billingRecord.findMany({
+        where: { orgId, monthKey: targetMonth },
+        include: { tool: { select: { category: true, name: true, monoInitials: true, monoBgColor: true } } },
+      });
+      rows = records.map((r) => ({
+        id: r.id,
+        toolId: r.toolId,
+        monthKey: r.monthKey,
+        monthLabel: r.monthLabel,
+        amount: r.amount,
+        status: r.status as 'PAID' | 'PENDING',
+        tool: r.tool
+          ? { name: r.tool.name, monoInitials: r.tool.monoInitials, monoBgColor: r.tool.monoBgColor, category: r.tool.category }
+          : { name: (r.toolSnapshotJson as any)?.name || 'Deleted tool', monoInitials: '?', monoBgColor: '#5E6AD2', category: (r.toolSnapshotJson as any)?.category || 'OTHER' },
+      }));
+    }
 
     const grouped: Record<string, { category: string; total: number; count: number }> = {};
     let grandTotal = 0;
 
-    for (const r of records) {
-      const cat = r.tool?.category || (r.toolSnapshotJson as any)?.category || 'OTHER';
+    for (const r of rows) {
+      const cat = r.tool?.category || 'OTHER';
       if (!grouped[cat]) grouped[cat] = { category: cat, total: 0, count: 0 };
       grouped[cat].total += r.amount;
       grouped[cat].count++;
       grandTotal += r.amount;
     }
 
-    return Object.values(grouped).map((g) => ({
-      ...g,
-      pct: grandTotal > 0 ? Math.round((g.total / grandTotal) * 100) : 0,
-    }));
+    return Object.values(grouped)
+      .sort((a, b) => b.total - a.total)
+      .map((g) => ({
+        ...g,
+        pct: grandTotal > 0 ? Math.round((g.total / grandTotal) * 100) : 0,
+      }));
   }
 
   async spendByDepartment(orgId: string, monthKey?: string) {
@@ -60,21 +138,38 @@ export class ReportsService {
   async billingHistory(orgId: string, filters: { monthKey?: string; toolId?: string; status?: string; page?: number; limit?: number }) {
     const page = filters.page || 1;
     const limit = filters.limit || 20;
-    const where: any = { orgId };
-    if (filters.monthKey) where.monthKey = filters.monthKey;
-    if (filters.toolId) where.toolId = filters.toolId;
-    if (filters.status) where.status = filters.status;
+    const currentMonth = currentMonthKey();
 
-    const [items, total] = await Promise.all([
-      this.prisma.billingRecord.findMany({
-        where,
-        include: { tool: { select: { name: true, monoInitials: true, monoBgColor: true, category: true } } },
-        orderBy: [{ monthKey: 'desc' }],
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      this.prisma.billingRecord.count({ where }),
-    ]);
+    // Live current-month rows (synthesised from tool spend) + historical
+    // billing records for every prior month. Excluding the current month from
+    // the DB query prevents double-counting once a real record exists for it.
+    const live = await this.currentMonthLiveRows(orgId);
+
+    const dbRecords = await this.prisma.billingRecord.findMany({
+      where: { orgId, monthKey: { not: currentMonth } },
+      include: { tool: { select: { name: true, monoInitials: true, monoBgColor: true, category: true } } },
+      orderBy: [{ monthKey: 'desc' }],
+    });
+
+    const historical: SpendRow[] = dbRecords.map((r) => ({
+      id: r.id,
+      toolId: r.toolId,
+      monthKey: r.monthKey,
+      monthLabel: r.monthLabel,
+      amount: r.amount,
+      status: r.status as 'PAID' | 'PENDING',
+      tool: r.tool
+        ? { name: r.tool.name, monoInitials: r.tool.monoInitials, monoBgColor: r.tool.monoBgColor, category: r.tool.category }
+        : { name: (r.toolSnapshotJson as any)?.name || 'Deleted tool', monoInitials: '?', monoBgColor: '#5E6AD2', category: (r.toolSnapshotJson as any)?.category || 'OTHER' },
+    }));
+
+    let all = [...live, ...historical];
+    if (filters.monthKey) all = all.filter((r) => r.monthKey === filters.monthKey);
+    if (filters.toolId) all = all.filter((r) => r.toolId === filters.toolId);
+    if (filters.status) all = all.filter((r) => r.status === filters.status);
+
+    const total = all.length;
+    const items = all.slice((page - 1) * limit, page * limit);
 
     return { items, total, page, limit, pages: Math.ceil(total / limit) };
   }

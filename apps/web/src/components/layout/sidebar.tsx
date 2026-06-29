@@ -37,6 +37,23 @@ export function Sidebar() {
   const [kpis, setKpis] = useState<KPIMin | null>(null);
   const [userMenu, setUserMenu] = useState(false);
   const [user, setUser] = useState<{ name: string; email: string; initials: string } | null>(null);
+  const [currency, setCurrency] = useState<'INR' | 'USD'>('INR');
+  const [fxRate, setFxRate] = useState(94.4);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('spend_currency') as 'INR' | 'USD' | null;
+    if (saved) setCurrency(saved);
+    fetch('https://api.frankfurter.app/latest?from=USD&to=INR')
+      .then((r) => r.json())
+      .then((d: any) => { if (d?.rates?.INR) setFxRate(d.rates.INR); })
+      .catch(() => {});
+
+    const onCurrencyChange = (e: Event) => {
+      setCurrency((e as CustomEvent<'INR' | 'USD'>).detail);
+    };
+    window.addEventListener('spend_currency_change', onCurrencyChange);
+    return () => window.removeEventListener('spend_currency_change', onCurrencyChange);
+  }, []);
 
   useEffect(() => {
     api.get<KPIMin>('/reports/dashboard-kpis').then(setKpis).catch(() => {});
@@ -44,6 +61,13 @@ export function Sidebar() {
   }, []);
 
   const budgetPct = kpis ? Math.min(100, Math.round((kpis.totalMonthlySpend / 175000) * 100)) : 71;
+
+  const fmtSpend = (amount: number) => {
+    if (currency === 'INR') {
+      return `₹${Number(amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+    }
+    return `$${(amount / fxRate).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  };
 
   return (
     <aside style={{ position: 'fixed', left: 0, top: 0, height: '100%', width: 224, display: 'flex', flexDirection: 'column', background: '#0D0F14', borderRight: '1px solid rgba(255,255,255,0.05)', zIndex: 40 }}>
@@ -89,7 +113,7 @@ export function Sidebar() {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
             <span style={{ color: '#9aa0ab' }}>{budgetPct}% of cap</span>
-            <span style={{ color: '#E6E8EC', fontWeight: 600 }}>{kpis ? fmt(kpis.totalMonthlySpend) : '₹0'}</span>
+            <span style={{ color: '#E6E8EC', fontWeight: 600 }}>{kpis ? fmtSpend(kpis.totalMonthlySpend) : currency === 'INR' ? '₹0' : '$0'}</span>
           </div>
         </div>
 

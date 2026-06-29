@@ -69,7 +69,7 @@ export class ToolsService {
 
     const tools = await this.prisma.tool.findMany({
       where,
-      include: { alertConfigs: { where: { isActive: true } } },
+      include: { alertConfigs: { where: { isActive: true } }, integration: { select: { provider: true, lastSyncAt: true, lastSyncAmountINR: true, isActive: true, lastError: true } } },
       orderBy: { name: 'asc' },
     });
 
@@ -90,6 +90,11 @@ export class ToolsService {
 
     let updated: any;
     try {
+      const newCap = dto.capAmount ?? existing.capAmount;
+      const barPct = newCap > 0
+        ? Math.min(100, Math.round((Number(existing.usedAmount) / newCap) * 100))
+        : 0;
+
       updated = await this.prisma.tool.update({
         where: { id },
         data: {
@@ -102,6 +107,7 @@ export class ToolsService {
           alertThresholdPct: dto.alertThresholdPct,
           triggerEmail: dto.triggerEmail,
           renewalDate: dto.renewalDate ? new Date(dto.renewalDate) : undefined,
+          barPct,
         },
       });
     } catch (err: any) {

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { IntegrationRunnerService } from '../integrations/integration-runner.service';
 
 @Injectable()
 export class SchedulerService {
@@ -13,7 +14,14 @@ export class SchedulerService {
   constructor(
     private prisma: PrismaService,
     private mail: MailService,
+    private integrationRunner: IntegrationRunnerService,
   ) {}
+
+  // ── Integration data sync — every 15 minutes ─────────────────────
+  @Cron('*/15 * * * *')
+  async syncIntegrations() {
+    await this.integrationRunner.runAll();
+  }
 
   // ── Threshold breach check — every 5 minutes ──────────────────────
   @Cron('*/5 * * * *')
