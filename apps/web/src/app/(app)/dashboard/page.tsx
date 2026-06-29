@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
-import { Plus, RefreshCw } from 'lucide-react';
+import { Plus, RefreshCw, Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { fmtDate } from '@/lib/utils';
+import { exportToolsList } from '@/lib/excel';
 import { AddToolModal } from '@/components/tools/add-tool-modal';
 import { IntegrationModal } from '@/components/tools/integration-modal';
 
@@ -166,6 +167,13 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
+          <button
+            onClick={() => exportToolsList(displayed, filter, currency, fxRate)}
+            title="Download as Excel"
+            style={{ width: 34, height: 34, borderRadius: 9, background: 'transparent', border: '1px solid #1E212A', color: '#6b707b', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          >
+            <Download size={13} />
+          </button>
           <button onClick={load} style={{ width: 34, height: 34, borderRadius: 9, background: 'transparent', border: '1px solid #1E212A', color: '#6b707b', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <RefreshCw size={13} />
           </button>

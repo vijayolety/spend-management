@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { fmt } from '@/lib/utils';
+import { exportSpendAnalysis, exportBillingHistory } from '@/lib/excel';
 
 interface CategoryData { category: string; total: number; pct: number; }
 interface BillingRecord {
@@ -22,6 +23,20 @@ export default function ReportsPage() {
   const [billing, setBilling] = useState<BillingRecord[]>([]);
   const [monthSummary, setMonthSummary] = useState<MonthSummary[]>([]);
   const [monthFilter, setMonthFilter] = useState<string>('all');
+  const [currency, setCurrency] = useState<'INR' | 'USD'>('INR');
+  const [fxRate, setFxRate] = useState(94.4);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('spend_currency') as 'INR' | 'USD' | null;
+    if (saved) setCurrency(saved);
+    fetch('https://api.frankfurter.app/latest?from=USD&to=INR')
+      .then((r) => r.json())
+      .then((d: any) => { if (d?.rates?.INR) setFxRate(d.rates.INR); })
+      .catch(() => {});
+    const onCurrencyChange = (e: Event) => setCurrency((e as CustomEvent<'INR' | 'USD'>).detail);
+    window.addEventListener('spend_currency_change', onCurrencyChange);
+    return () => window.removeEventListener('spend_currency_change', onCurrencyChange);
+  }, []);
 
   useEffect(() => {
     api.get<CategoryData[]>('/reports/spend-by-category').then(setCategories);
@@ -34,18 +49,34 @@ export default function ReportsPage() {
   const filteredBilling = monthFilter === 'all' ? billing : billing.filter((r) => r.monthKey === monthFilter);
   const filteredTotal = filteredBilling.reduce((s, r) => s + r.amount, 0);
 
+  const fmtAmt = (n: number) => currency === 'INR'
+    ? fmt(n)
+    : `$${(n / fxRate).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+
   const reportStats = [
-    { label: 'Total Monthly Spend', value: fmt(totalSpend), sub: 'this period' },
+    { label: 'Total Monthly Spend', value: fmtAmt(totalSpend), sub: 'this period' },
     { label: 'Tracked Tools', value: String(toolCount), sub: 'with billing records' },
     { label: 'Categories', value: String(categories.length), sub: 'active categories' },
-    { label: 'Avg / Tool', value: toolCount ? fmt(Math.round(totalSpend / toolCount)) : '₹0', sub: 'per month' },
+    { label: 'Avg / Tool', value: toolCount ? fmtAmt(Math.round(totalSpend / toolCount)) : `${currency === 'INR' ? '₹' : '$'}0`, sub: 'per month' },
   ];
 
   return (
     <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 980 }}>
-      <div style={{ marginBottom: 4 }}>
-        <h1 style={{ fontSize: 18, fontWeight: 660, color: '#F2F3F5', letterSpacing: '-.02em', margin: '0 0 4px' }}>Reports</h1>
-        <p style={{ fontSize: 12, color: '#767b86', margin: 0 }}>Spend breakdown across categories and tools.</p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div style={{ marginBottom: 4 }}>
+          <h1 style={{ fontSize: 18, fontWeight: 660, color: '#F2F3F5', letterSpacing: '-.02em', margin: '0 0 4px' }}>Reports</h1>
+          <p style={{ fontSize: 12, color: '#767b86', margin: 0 }}>Spend breakdown across categories and tools.</p>
+        </div>
+        <DownloadBtn
+          onClick={() => {
+            if (tab === 'spend') {
+              exportSpendAnalysis(categories, reportStats, currency, fxRate);
+            } else {
+              exportBillingHistory(filteredBilling, monthFilter, currency, fxRate);
+            }
+          }}
+          label={tab === 'spend' ? 'Download Spend Report' : 'Download Billing History'}
+        />
       </div>
 
       {/* Tab switcher */}
@@ -115,7 +146,7 @@ export default function ReportsPage() {
                 </div>
                 <div style={{ fontSize: 12, color: '#9aa0ab' }}>{CAT_LABELS[r.tool?.category || ''] || r.tool?.category || '—'}</div>
                 <div style={{ fontSize: 12, color: '#9aa0ab' }}>{r.monthLabel}</div>
-                <div style={{ fontSize: 13.5, fontWeight: 650, color: '#F2F3F5', fontVariantNumeric: 'tabular-nums' }}>{fmt(r.amount)}</div>
+                <div style={{ fontSize: 13.5, fontWeight: 650, color: '#F2F3F5', fontVariantNumeric: 'tabular-nums' }}>{fmtAmt(r.amount)}</div>
                 <div>
                   <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 20, background: r.status === 'PAID' ? 'rgba(63,185,80,.12)' : 'rgba(245,166,35,.12)', color: r.status === 'PAID' ? '#3FB950' : '#d99e3e' }}>
                     {r.status === 'PAID' ? 'Paid' : 'Pending'}
@@ -129,12 +160,29 @@ export default function ReportsPage() {
             {/* Footer */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', background: '#0A0C10', borderTop: '1px solid #1A1D24' }}>
               <span style={{ fontSize: 12, color: '#6b707b' }}>{filteredBilling.length} records</span>
-              <span style={{ fontSize: 13, fontWeight: 650, color: '#F2F3F5' }}>{fmt(filteredTotal)}</span>
+              <span style={{ fontSize: 13, fontWeight: 650, color: '#F2F3F5' }}>{fmtAmt(filteredTotal)}</span>
             </div>
           </div>
         </>
       )}
     </div>
+  );
+}
+
+function DownloadBtn({ onClick, label }: { onClick: () => void; label: string }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 14px', borderRadius: 9, background: hover ? '#1f2330' : '#171a22', border: '1px solid #2a2e3d', color: '#9aa2ef', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', transition: 'all .15s', whiteSpace: 'nowrap' }}
+    >
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 2v8M5 7l3 3 3-3"/><rect x="2" y="12" width="12" height="2" rx="1"/>
+      </svg>
+      {label}
+    </button>
   );
 }
 

@@ -3,10 +3,11 @@ node_modules/
 .pnpm-store/
 
 # ── Environment / Secrets ─────────────────────────────────────────────
-# Ignore all .env files; keep .env.example safe to commit
+# Ignore all .env files; keep example files safe to commit
 .env
 .env.*
 !.env.example
+!.env.*.example
 
 # ── Build outputs ────────────────────────────────────────────────────
 dist/
@@ -44,7 +45,18 @@ Thumbs.db
 desktop.ini
 
 # ── Editor ───────────────────────────────────────────────────────────
-.vscode/
+# Share recommended extensions & settings, ignore personal/local overrides
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
 .idea/
 *.swp
 *.swo
+
+# ── Prisma generated client (regenerated via prisma generate) ─────────
+apps/api/src/generated/
+
+# ── Docker local volumes ──────────────────────────────────────────────
+postgres-data/
+redis-data/
