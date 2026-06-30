@@ -7,6 +7,12 @@ import { IntegrationsService } from './integrations.service';
 export class IntegrationsController {
   constructor(private integrations: IntegrationsService) {}
 
+  // Must be before :toolId routes or NestJS matches "preview-limits" as a toolId
+  @Post('preview-limits')
+  previewLimits(@Body() body: any) {
+    return this.integrations.previewLimits(body.provider, body.config);
+  }
+
   @Get(':toolId')
   get(@Param('toolId') toolId: string, @Req() req: any) {
     return this.integrations.get(toolId, req.user.orgId);
@@ -20,6 +26,11 @@ export class IntegrationsController {
   @Delete(':toolId')
   remove(@Param('toolId') toolId: string, @Req() req: any) {
     return this.integrations.remove(toolId, req.user.orgId);
+  }
+
+  @Get(':toolId/limits')
+  fetchLimits(@Param('toolId') toolId: string, @Req() req: any) {
+    return this.integrations.fetchLimits(toolId, req.user.orgId);
   }
 
   @Post(':toolId/sync')

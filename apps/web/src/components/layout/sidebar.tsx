@@ -56,8 +56,18 @@ export function Sidebar() {
   }, []);
 
   useEffect(() => {
-    api.get<KPIMin>('/reports/dashboard-kpis').then(setKpis).catch(() => {});
+    function loadKpis() {
+      api.get<KPIMin>('/reports/dashboard-kpis').then(setKpis).catch(() => {});
+    }
+    loadKpis();
     api.get<{ name: string; email: string; initials: string }>('/users/me').then(setUser).catch(() => {});
+
+    const interval = setInterval(loadKpis, 30_000);
+    window.addEventListener('spend_data_changed', loadKpis);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('spend_data_changed', loadKpis);
+    };
   }, []);
 
   const budgetPct = kpis ? Math.min(100, Math.round((kpis.totalMonthlySpend / 175000) * 100)) : 71;
@@ -103,20 +113,6 @@ export function Sidebar() {
 
       {/* Bottom section */}
       <div style={{ padding: '0 8px 10px', marginTop: 'auto' }}>
-        {/* Budget widget */}
-        <div style={{ background: '#101218', border: '1px solid #1E212A', borderRadius: 11, padding: 13, marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: '#767b86', marginBottom: 7 }}>
-            {new Date().toLocaleDateString('en-IN', { month: 'long' })} budget used
-          </div>
-          <div style={{ height: 6, borderRadius: 999, background: '#1E212A', overflow: 'hidden', marginBottom: 8 }}>
-            <div style={{ height: '100%', width: `${budgetPct}%`, borderRadius: 999, background: 'linear-gradient(90deg,#5E6AD2,#8B5CF6)' }} />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-            <span style={{ color: '#9aa0ab' }}>{budgetPct}% of cap</span>
-            <span style={{ color: '#E6E8EC', fontWeight: 600 }}>{kpis ? fmtSpend(kpis.totalMonthlySpend) : currency === 'INR' ? '₹0' : '$0'}</span>
-          </div>
-        </div>
-
         <div style={{ height: 1, background: '#1A1D24', margin: '0 4px 6px' }} />
 
         {/* User row */}

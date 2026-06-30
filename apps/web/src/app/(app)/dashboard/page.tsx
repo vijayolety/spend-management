@@ -96,12 +96,12 @@ export default function DashboardPage() {
   const [confirmDelete, setConfirmDelete] = useState<Tool | null>(null);
   const [integrationTool, setIntegrationTool] = useState<Tool | null>(null);
   const [toast, setToast] = useState('');
-  const [currency, setCurrency] = useState<'INR' | 'USD'>('INR');
+  const [currency, setCurrency] = useState<'INR' | 'USD'>(
+    () => (typeof window !== 'undefined' ? (localStorage.getItem('spend_currency') as 'INR' | 'USD' | null) : null) ?? 'INR'
+  );
   const [fxRate, setFxRate] = useState(94.4);
 
   useEffect(() => {
-    const saved = localStorage.getItem('spend_currency') as 'INR' | 'USD' | null;
-    if (saved) setCurrency(saved);
     fetch('https://api.frankfurter.app/latest?from=USD&to=INR')
       .then((r) => r.json())
       .then((d: any) => { if (d?.rates?.INR) setFxRate(d.rates.INR); })
@@ -116,6 +116,7 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     const [k, t] = await Promise.all([api.get<KPIs>('/reports/dashboard-kpis'), api.get<Tool[]>('/tools')]);
     setKpis(k); setTools(t);
+    window.dispatchEvent(new Event('spend_data_changed'));
   }, []);
 
   useEffect(() => { load(); }, [load]);

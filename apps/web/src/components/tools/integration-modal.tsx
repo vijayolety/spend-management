@@ -16,6 +16,15 @@ interface Integration {
   syncEveryMinutes: number;
 }
 
+interface RailwayLimits {
+  computeHardLimitINR: number;
+  computeSoftLimitINR: number;
+  computeHardLimitUSD: number;
+  computeSoftLimitUSD: number;
+  alertThresholdPct: number;
+  fxRate: number;
+}
+
 interface Props {
   toolId: string;
   toolName: string;
@@ -34,6 +43,7 @@ export function IntegrationModal({ toolId, toolName, onClose, onSynced }: Props)
   const [provider, setProvider] = useState('RAILWAY');
   const [apiToken, setApiToken] = useState('');
   const [showToken, setShowToken] = useState(false);
+  const [appliedLimits, setAppliedLimits] = useState<RailwayLimits | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function fetchIntegration() {
@@ -58,6 +68,23 @@ export function IntegrationModal({ toolId, toolName, onClose, onSynced }: Props)
     try {
       await api.put(`/integrations/${toolId}`, { provider, config: { apiToken: apiToken.trim() } });
       setApiToken('');
+
+      // Fetch usage limits from the provider and auto-apply to the tool
+      if (provider === 'RAILWAY') {
+        try {
+          const limits = await api.get<RailwayLimits | null>(`/integrations/${toolId}/limits`);
+          if (limits) {
+            await api.patch(`/tools/${toolId}`, {
+              capAmount: limits.computeHardLimitINR,
+              alertThresholdPct: limits.alertThresholdPct,
+            });
+            setAppliedLimits(limits);
+          }
+        } catch {
+          // Limits fetch is best-effort — don't fail the whole connect flow
+        }
+      }
+
       await fetchIntegration();
       onSynced();
     } catch (err: any) {
@@ -165,6 +192,23 @@ export function IntegrationModal({ toolId, toolName, onClose, onSynced }: Props)
               </div>
             )}
 
+            {/* Auto-applied limits banner */}
+            {appliedLimits && (
+              <div style={{ borderRadius: 12, padding: '12px 14px', background: 'rgba(94,106,210,.08)', border: '1px solid rgba(94,106,210,.28)', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#9aa2ef" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L6 9l-3-3"/></svg>
+                  <span style={{ fontSize: 12, fontWeight: 650, color: '#9aa2ef' }}>Budget synced from Railway</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
+                  <LimitRow label="Budget cap" inr={appliedLimits.computeHardLimitINR} usd={appliedLimits.computeHardLimitUSD} />
+                  <LimitRow label="Alert threshold" inr={appliedLimits.computeSoftLimitINR} usd={appliedLimits.computeSoftLimitUSD} pct={appliedLimits.alertThresholdPct} />
+                </div>
+                <div style={{ marginTop: 8, fontSize: 10.5, color: '#5e6480' }}>
+                  Based on your Railway compute hard limit · 1 USD = ₹{appliedLimits.fxRate.toFixed(1)}
+                </div>
+              </div>
+            )}
+
             {/* Form error */}
             {formError && (
               <div style={{ borderRadius: 10, padding: '9px 13px', background: 'rgba(248,81,73,.1)', border: '1px solid rgba(248,81,73,.28)', fontSize: 12, color: '#F85149', marginBottom: 14 }}>
@@ -259,6 +303,19 @@ export function IntegrationModal({ toolId, toolName, onClose, onSynced }: Props)
             )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function LimitRow({ label, inr, usd, pct }: { label: string; inr: number; usd: number; pct?: number }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10.5, color: '#5e6480', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 12.5, fontWeight: 650, color: '#c2c6cf' }}>
+        ₹{inr.toLocaleString('en-IN')}
+        <span style={{ fontSize: 10.5, fontWeight: 400, color: '#5e6480', marginLeft: 5 }}>(${usd})</span>
+        {pct !== undefined && <span style={{ fontSize: 10.5, fontWeight: 600, color: '#9aa2ef', marginLeft: 6 }}>at {pct}%</span>}
       </div>
     </div>
   );

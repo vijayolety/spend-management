@@ -68,8 +68,57 @@ const PROJECT_USAGE_QUERY = (projectId: string) => `
 const RATE_LIMIT_RE = /too many (metric|usage) queries/i;
 const NOT_AUTHORIZED_RE = /not authorized/i;
 
+// Fetches compute & agent usage limits from the workspace the token belongs to.
+// Returns null when the token is project-scoped and cannot read workspace billing.
+const WORKSPACE_LIMITS_QUERY = `
+  query {
+    projects {
+      edges {
+        node {
+          workspace {
+            customer {
+              usageLimit {
+                hardLimit
+                softLimit
+                agentHardLimitCents
+                agentSoftLimitCents
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export interface RailwayUsageLimits {
+  computeHardLimitUSD: number;  // hard limit on compute ($)
+  computeSoftLimitUSD: number;  // email-alert threshold ($)
+  agentHardLimitUSD: number;    // agent hard limit ($)
+  agentSoftLimitUSD: number;    // agent alert threshold ($)
+}
+
 export class RailwayProvider implements IntegrationProvider {
   private readonly logger = new Logger(RailwayProvider.name);
+
+  async fetchLimitsUSD(config: Record<string, any>): Promise<RailwayUsageLimits | null> {
+    const { apiToken } = config;
+    if (!apiToken) return null;
+
+    const h = { 'Content-Type': 'application/json', Authorization: `Bearer ${apiToken}` };
+    const json = await this.gql(h, WORKSPACE_LIMITS_QUERY);
+    if (this.firstError(json)) return null;
+
+    const first = json?.data?.projects?.edges?.[0]?.node?.workspace?.customer?.usageLimit;
+    if (!first) return null;
+
+    return {
+      computeHardLimitUSD:  first.hardLimit  ?? 0,
+      computeSoftLimitUSD:  first.softLimit   ?? 0,
+      agentHardLimitUSD:    (first.agentHardLimitCents ?? 0) / 100,
+      agentSoftLimitUSD:    (first.agentSoftLimitCents ?? 0) / 100,
+    };
+  }
 
   async fetchSpendUSD(config: Record<string, any>): Promise<number> {
     const { apiToken } = config;
