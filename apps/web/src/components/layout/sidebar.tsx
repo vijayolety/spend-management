@@ -23,10 +23,6 @@ const NAV = [
     icon: <svg width="17" height="17" viewBox="0 0 16 16" fill="none"><rect x="2" y="8" width="3" height="6" rx="1.1" fill="currentColor"/><rect x="6.5" y="4.5" width="3" height="9.5" rx="1.1" fill="currentColor" opacity=".6"/><rect x="11" y="2.5" width="3" height="11.5" rx="1.1" fill="currentColor"/></svg>,
   },
   {
-    label: 'Team', href: '/team',
-    icon: <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><circle cx="6" cy="5.5" r="2.5"/><path d="M2 13c0-2.2 1.8-4 4-4h.5"/><circle cx="11.5" cy="9.5" r="2"/><path d="M9 13.5c0-1.4 1.1-2.5 2.5-2.5s2.5 1.1 2.5 2.5"/></svg>,
-  },
-  {
     label: 'Settings', href: '/settings',
     icon: <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" strokeLinecap="round"/></svg>,
   },
